@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="DataSourceManagerImpl" format="xml" multifile-model="true">
+    <data-source source="LOCAL" name="麟龙" uuid="9dc5e83c-56cf-4436-a6a1-5adcf0494870">
+      <driver-ref>clickhouse</driver-ref>
+      <synchronize>true</synchronize>
+      <remarks>必须连接产研院-office</remarks>
+      <jdbc-driver>com.clickhouse.jdbc.ClickHouseDriver</jdbc-driver>
+      <jdbc-url>jdbc:clickhouse://172.29.34.23:8123/</jdbc-url>
+      <working-dir>$ProjectFileDir$</working-dir>
+    </data-source>
+  </component>
+</project>
