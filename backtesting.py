@@ -104,7 +104,7 @@ class AkShareBacktestEngine:
             'Recovery Days': recovery_days
         }
 
-    def run(self, stock_codes, start_date, end_date):
+    def run(self, stock_codes, start_date, end_date, plot_path=None):
         df_stocks, df_bench = self.get_data(stock_codes, start_date, end_date)
         if df_stocks.empty: return
 
@@ -113,10 +113,10 @@ class AkShareBacktestEngine:
         benchmark_nav = df_bench / df_bench.iloc[0]
 
         metrics = self.calculate_metrics(portfolio_nav)
-        self._plot_results(portfolio_nav, benchmark_nav, metrics)
+        self._plot_results(portfolio_nav, benchmark_nav, metrics,plot_path=plot_path)
         return metrics
 
-    def _plot_results(self, port_nav, bench_nav, metrics):
+    def _plot_results(self, port_nav, bench_nav, metrics,plot_path=None):
         """
         【关键修改】可视化逻辑：区分下跌段(绿)和修复段(金)
         """
@@ -195,7 +195,12 @@ class AkShareBacktestEngine:
         ax.legend(loc='upper left', fontsize=9)
 
         plt.tight_layout()
+        if plot_path:
+            fig.savefig(plot_path, dpi=150, bbox_inches="tight")
+
         plt.show()
+        plt.close(fig)
+
 
 # ===========================
 # 运行示例

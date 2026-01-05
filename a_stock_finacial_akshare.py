@@ -1,7 +1,7 @@
 # @Author: CY
 # @Time : 2026/1/5 14:57
 # ==========================================
-# 获取全A股的日线数据-akshare接口
+# 获取全A股的财务数据-akshare接口
 # 用来进行五因子数据的计算
 # ==========================================
 import akshare as ak
@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 import os
 from tqdm import tqdm
+import traceback
 
 # ================= 配置 =================
 # 我们需要 2022-2025 的因子，因此财务数据需要从 2021 开始 (用于计算 2022 的增长率)
@@ -37,17 +38,90 @@ def fetch_financial_data_robust():
     raw_header_written = False
 
     def _call_ak(possible_names, **kwargs):
-        """兼容不同 AkShare 版本的接口命名"""
+        """
+        更鲁棒地调用 akshare 接口：
+        - 优先尝试原 kwargs；
+        - 尝试常见日期参数名（date, report_date, reportDate, rpt, end_date 等）；
+        - 尝试位置参数（如 fn(rpt)）；
+        - 尝试 YYYY-MM-DD 格式、int 格式、无参调用；
+        - 记录并打印最后错误栈，方便定位。
+        """
+        import inspect
+
         last_err = None
+        param_names = ["date", "report_date", "reportDate", "rpt", "trade_date", "period", "end_date"]
+        # 从 kwargs 提取第一个值作为 rpt 值（兼容现有调用 style: date=rpt）
+        rpt_val = None
+        if kwargs:
+            try:
+                rpt_val = next(iter(kwargs.values()))
+            except StopIteration:
+                rpt_val = None
+
+        # 生成候选日期表示
+        date_candidates = []
+        if rpt_val is not None:
+            s = str(rpt_val)
+            date_candidates.append(s)
+            # 如果是像 20221231 的纯数字，尝试带短横的形式和 int
+            if len(s) == 8 and s.isdigit():
+                date_candidates.append(f"{s[:4]}-{s[4:6]}-{s[6:]}")
+                try:
+                    date_candidates.append(int(s))
+                except Exception:
+                    pass
+
         for name in possible_names:
             fn = getattr(ak, name, None)
             if fn is None:
                 continue
+
+            # 1) 直接用原 kwargs（保持向后兼容）
             try:
                 return fn(**kwargs)
             except Exception as e:
                 last_err = e
-                continue
+
+            # 2) 尝试常见关键字名传递 rpt_val
+            if rpt_val is not None:
+                for p in param_names:
+                    try:
+                        return fn(**{p: rpt_val})
+                    except Exception as e:
+                        last_err = e
+                        continue
+
+            # 3) 尝试位置参数调用（各种日期格式）
+            for v in date_candidates:
+                try:
+                    return fn(v)
+                except Exception as e:
+                    last_err = e
+                    continue
+
+            # 4) 尝试不带参数调用（某些版本接口可能无参数）
+            try:
+                return fn()
+            except Exception as e:
+                last_err = e
+
+            # 5) 如果函数签名可读，尝试按签名构造（如只接受一个位置参数）
+            try:
+                sig = inspect.signature(fn)
+                params = sig.parameters
+                # 如果函数只接受一个非-kwargs 参数，尝试把 rpt_val 以位置方式传入
+                non_default_params = [p for p in params.values() if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+                if len(non_default_params) == 1 and rpt_val is not None:
+                    try:
+                        return fn(rpt_val)
+                    except Exception as e:
+                        last_err = e
+            except Exception:
+                pass
+
+        # 全部尝试失败，打印最后错误栈便于排查
+        if last_err is not None:
+            traceback.print_exception(type(last_err), last_err, last_err.__traceback__)
         raise RuntimeError(f"AkShare 接口调用失败，尝试过: {possible_names}, last_err={repr(last_err)}")
 
     def _pick_col(df: pd.DataFrame, candidates):
@@ -122,8 +196,16 @@ def fetch_financial_data_robust():
             # 过滤出 A 股常见 6 位代码（0/3/6 开头）
             lrb_sub["code"] = lrb_sub["code"].astype(str).str.strip()
             zcfz_sub["code"] = zcfz_sub["code"].astype(str).str.strip()
-            lrb_sub = lrb_sub[lrb_sub["code"].str.fullmatch(r"[0-9]{6}")]
-            zcfz_sub = zcfz_sub[zcfz_sub["code"].str.fullmatch(r"[0-9]{6}")]
+
+            # 兼容带后缀（如 600519.SH 或 600519.SZ）的代码，提取最后的 6 位数字
+            lrb_sub["code"] = lrb_sub["code"].str.extract(r'(\d{6})$', expand=False)
+            zcfz_sub["code"] = zcfz_sub["code"].str.extract(r'(\d{6})$', expand=False)
+
+            # 丢弃无法提取的行
+            lrb_sub = lrb_sub.dropna(subset=["code"])
+            zcfz_sub = zcfz_sub.dropna(subset=["code"])
+
+            # 只保留以 0/3/6 开头的 A 股（字符串形式）
             lrb_sub = lrb_sub[lrb_sub["code"].str.startswith(("0", "3", "6"))]
             zcfz_sub = zcfz_sub[zcfz_sub["code"].str.startswith(("0", "3", "6"))]
 
@@ -148,8 +230,11 @@ def fetch_financial_data_robust():
             )
             raw_header_written = True
 
-        except Exception:
+        except Exception as e:
             # 单个报告期失败不影响整体
+            print(f"[ERROR] rpt={rpt} 失败: {e}")
+            traceback.print_exc()
+
             continue
 
     # -------- 最终清洗与输出（保持你原逻辑/格式）--------

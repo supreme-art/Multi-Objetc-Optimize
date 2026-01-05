@@ -10,8 +10,9 @@ from NSGA.load_data import load_and_process_data
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import akshare as ak
 
-from backtest import AkShareBacktestEngine
+from backtesting import AkShareBacktestEngine
 
 if __name__ == "__main__":
 
@@ -336,6 +337,41 @@ if __name__ == "__main__":
         # 5. 存储结果，并添加策略名称
         metrics['Strategy'] = strategy_name
         all_metrics.append(metrics)
+    # ==========================================
+    # 【新增代码】获取 CSI300 基准并计算指标
+    # ==========================================
+    try:
+
+        print(f"\n{'=' * 20} 正在计算基准: CSI300 {'=' * 20}")
+
+        # 定义与回测一致的日期范围 (格式转换为 YYYYMMDD 以适配 akshare)
+        s_date_str = "20250101"
+        e_date_str = "20251230"
+
+        # 获取沪深300指数数据
+        df_bench = ak.index_zh_a_hist(symbol="000300", period="daily", start_date=s_date_str, end_date=e_date_str)
+
+        if not df_bench.empty:
+            df_bench['日期'] = pd.to_datetime(df_bench['日期'])
+            df_bench.set_index('日期', inplace=True)
+
+            # 计算净值 (归一化为 1.0)
+            bench_nav = df_bench['收盘'] / df_bench['收盘'].iloc[0]
+
+            # 使用 engine 内部的方法计算指标 (确保计算口径与策略一致)
+            bench_metrics = engine.calculate_metrics(bench_nav)
+
+            # 标记名称
+            bench_metrics['Strategy'] = 'Benchmark (CSI300)'
+
+            # 将基准指标插入到结果列表的第一个位置
+            all_metrics.insert(0, bench_metrics)
+            print("基准指标计算完成，已加入对比表。")
+        else:
+            print("未获取到 CSI300 数据，跳过基准对比。")
+
+    except Exception as e:
+        print(f"基准计算失败: {e}")
 
     # 6. 将所有结果合并成一个 DataFrame 并展示
     if all_metrics:
